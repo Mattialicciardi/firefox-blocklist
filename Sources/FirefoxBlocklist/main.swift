@@ -104,11 +104,19 @@ final class SiteStore: ObservableObject {
             return
         }
 
-        let destDir = "/Applications/Firefox.app/Contents/Resources/distribution"
+        // Fuori dal bundle di Firefox.app: posizione ufficiale Mozilla su macOS,
+        // scrivibile da root e non soggetta ad App Management (che vieta la scrittura
+        // dentro un .app). Sopravvive anche agli aggiornamenti di Firefox.
+        let destDir = "/Library/Mozilla/Firefox/policies"
         let destFile = destDir + "/policies.json"
+        // Vecchia posizione dentro Firefox.app: rimozione best-effort (App Management
+        // può impedirla, ma non deve far fallire la scrittura critica qui sotto).
+        let legacyFile = "/Applications/Firefox.app/Contents/Resources/distribution/policies.json"
 
         // Only fixed, hardcoded paths are interpolated here — never user-entered text.
-        let shellCommand = "mkdir -p \(shellQuote(destDir)) && cp \(shellQuote(tmpURL.path)) \(shellQuote(destFile)) && chmod 644 \(shellQuote(destFile))"
+        // Il cleanup del legacy va PRIMA della catena critica (`;`): così l'exit status
+        // finale riflette solo mkdir/cp/chmod e un rm fallito non maschera un errore reale.
+        let shellCommand = "rm -f \(shellQuote(legacyFile)) 2>/dev/null; mkdir -p \(shellQuote(destDir)) && cp \(shellQuote(tmpURL.path)) \(shellQuote(destFile)) && chmod 644 \(shellQuote(destFile))"
         let appleScript = "do shell script \(appleScriptQuote(shellCommand)) with administrator privileges"
 
         let process = Process()

@@ -18,7 +18,8 @@ file aggiunge come ragionare nel progetto, non lo ripete.
 
 ## Limiti di sicurezza da rispettare sempre
 
-Questa app scrive dentro `Firefox.app` con privilegi elevati. Qualsiasi
+Questa app scrive in `/Library/Mozilla/Firefox/policies/` con privilegi
+elevati (fuori dal bundle di Firefox.app, per evitare App Management). Qualsiasi
 modifica a `SiteStore.apply()` o alla costruzione del comando shell deve
 mantenere la proprietà: **nessuna stringa proveniente dall'utente entra
 mai nel comando eseguito con `administrator privileges`**. Se una PR
