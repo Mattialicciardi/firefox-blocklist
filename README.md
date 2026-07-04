@@ -29,7 +29,7 @@ app dà un'interfaccia per farlo senza reinventare quel passaggio ogni volta.
 
 ## Build
 
-Richiede solo i Command Line Tools di Xcode (niente Xcode.app).
+Richiede macOS 26+ e i Command Line Tools con SDK macOS 26 (niente Xcode.app).
 
 ```bash
 ./scripts/bundle.sh          # build + assembla FirefoxBlocklist.app

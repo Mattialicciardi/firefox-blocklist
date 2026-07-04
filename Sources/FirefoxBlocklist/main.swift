@@ -166,69 +166,157 @@ struct ContentView: View {
     @State private var newSite: String = ""
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Siti bloccati in Firefox")
-                    .font(.title2).bold()
-                Spacer()
-            }
-            .padding([.top, .horizontal])
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+                .opacity(0.55)
+                .ignoresSafeArea()
 
-            HStack {
-                TextField("es. instagram.com", text: $newSite)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(addCurrent)
-                Button("Aggiungi", action: addCurrent)
-                    .disabled(SiteStore.normalize(newSite).isEmpty)
-            }
-            .padding()
-
-            List {
-                ForEach(store.sites) { site in
-                    Text(site.domain)
+            GlassEffectContainer(spacing: 18) {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    addSiteBar
+                    domainList
+                    footer
                 }
-                .onDelete(perform: store.removeSite)
+                .padding(24)
             }
-            .listStyle(.inset)
-            .frame(minHeight: 200)
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 8) {
-                if !store.statusMessage.isEmpty {
-                    Text(store.statusMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                HStack {
-                    Spacer()
-                    Button {
-                        store.quitAndRelaunchFirefox()
-                    } label: {
-                        Label("Riavvia Firefox", systemImage: "arrow.clockwise")
-                    }
-                    Button {
-                        store.apply()
-                    } label: {
-                        if store.isApplying {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Label("Applica modifiche", systemImage: "checkmark.shield")
-                        }
-                    }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(store.isApplying)
-                }
-            }
-            .padding()
         }
-        .frame(width: 420, height: 480)
+        .tint(.cyan.opacity(0.55))
+        .frame(minWidth: 520, minHeight: 600)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Firefox Blocklist")
+                .font(.system(size: 30, weight: .semibold, design: .rounded))
+            Text("\(store.sites.count) domini bloccati")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+    }
+
+    private var addSiteBar: some View {
+        HStack(spacing: 12) {
+            Label("Dominio", systemImage: "plus")
+                .labelStyle(.iconOnly)
+                .foregroundStyle(.secondary)
+
+            TextField("instagram.com", text: $newSite)
+                .textFieldStyle(.plain)
+                .font(.body)
+                .onSubmit(addCurrent)
+
+            Button("Aggiungi", action: addCurrent)
+                .buttonStyle(.glass)
+                .disabled(SiteStore.normalize(newSite).isEmpty)
+        }
+        .padding(14)
+        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private var domainList: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Lista")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(store.sites) { site in
+                        domainRow(site)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            .scrollIndicators(.automatic)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(16)
+        .glassEffect(.regular.tint(.cyan.opacity(0.08)), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
+    private func domainRow(_ site: BlockedSite) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "globe")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .frame(width: 24)
+
+            Text(site.domain)
+                .font(.system(.body, design: .rounded))
+                .lineLimit(1)
+                .textSelection(.enabled)
+
+            Spacer()
+
+            Button {
+                remove(site)
+            } label: {
+                Label("Rimuovi", systemImage: "minus")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.glass)
+            .help("Rimuovi \(site.domain)")
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .glassEffect(.clear.interactive(), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !store.statusMessage.isEmpty {
+                Text(store.statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack(spacing: 12) {
+                Spacer()
+
+                Button {
+                    store.quitAndRelaunchFirefox()
+                } label: {
+                    Label("Riavvia Firefox", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.glass)
+
+                Button {
+                    store.apply()
+                } label: {
+                    if store.isApplying {
+                        Label {
+                            Text("Applica modifiche")
+                        } icon: {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    } else {
+                        Label("Applica modifiche", systemImage: "checkmark.shield")
+                    }
+                }
+                .buttonStyle(.glassProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(store.isApplying)
+            }
+        }
+        .padding(16)
+        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     private func addCurrent() {
         store.addSite(newSite)
         newSite = ""
+    }
+
+    private func remove(_ site: BlockedSite) {
+        guard let index = store.sites.firstIndex(of: site) else { return }
+        store.removeSite(at: IndexSet(integer: index))
     }
 }
 
@@ -240,6 +328,7 @@ struct FirefoxBlocklistApp: App {
         WindowGroup {
             ContentView(store: store)
         }
+        .defaultSize(width: 560, height: 640)
         .windowResizability(.contentSize)
     }
 }
