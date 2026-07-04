@@ -40,6 +40,18 @@ Serve un vero bundle `.app` (con `Info.plist`) perché macOS lanci l'app come
 finestra: un eseguibile SwiftPM "nudo" esce senza mostrare interfaccia. Per la
 sola compilazione del binario basta `swift build -c release`.
 
+## Installazione
+
+Per installare l'app in `/Applications` (visibile in Launchpad/Spotlight):
+
+```bash
+./scripts/install.sh
+```
+
+Lo script fa il build e copia il bundle in `/Applications`. Non richiede
+`sudo`: `/Applications` è scrivibile dagli utenti admin. Ri-eseguirlo aggiorna
+l'app installata.
+
 ## Verifica
 
 Dopo aver applicato le modifiche e riavviato Firefox, apri `about:policies`
