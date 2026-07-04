@@ -2,7 +2,7 @@
 
 ## Stack
 
-- Swift 5.9+, SwiftUI (`@main App`), macOS 13+
+- Swift 6.3+, SwiftUI (`@main App`), macOS 26+
 - Nessuna dipendenza esterna (no SPM packages di terze parti)
 - Build via Swift Package Manager, non Xcode project
 
