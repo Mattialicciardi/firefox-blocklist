@@ -2,3 +2,5 @@
 *.xcodeproj
 .DS_Store
 FirefoxBlocklist.app/
+# Iconset intermedio rigenerabile: si tiene solo Resources/AppIcon.icns
+FirefoxBlocklist.iconset/

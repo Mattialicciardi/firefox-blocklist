@@ -41,6 +41,17 @@ Serve un vero bundle `.app` (con `Info.plist`) perché macOS lanci l'app come
 finestra: un eseguibile SwiftPM "nudo" esce senza mostrare interfaccia. Per la
 sola compilazione del binario basta `swift build -c release`.
 
+## Icona
+
+L'icona dell'app è generata in modo riproducibile da uno script locale:
+
+```bash
+./scripts/make-icon.sh
+```
+
+Lo script costruisce `FirefoxBlocklist.iconset/` e aggiorna
+`Resources/AppIcon.icns`, che viene copiato nel bundle da `scripts/bundle.sh`.
+
 ## Installazione
 
 Per installare l'app in `/Applications` (visibile in Launchpad/Spotlight):
