@@ -222,12 +222,16 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Firefox Blocklist")
                 .font(.system(size: 30, weight: .semibold, design: .rounded))
-            Text("\(store.sites.count) domini bloccati")
+            Text("\(activeSitesCount) di \(store.sites.count) bloccati")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 4)
+    }
+
+    private var activeSitesCount: Int {
+        store.sites.filter { $0.enabled }.count
     }
 
     private var addSiteBar: some View {
@@ -271,23 +275,40 @@ struct ContentView: View {
     }
 
     private func domainRow(_ site: BlockedSite) -> some View {
-        HStack(spacing: 12) {
+        let rowOpacity = site.enabled ? 1.0 : 0.58
+        let foregroundStyle: HierarchicalShapeStyle = site.enabled ? .primary : .secondary
+
+        return HStack(spacing: 12) {
             Image(systemName: "globe")
                 .font(.body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(site.enabled ? .cyan.opacity(0.72) : .secondary)
                 .frame(width: 24)
+                .opacity(rowOpacity)
 
             Text(site.domain)
                 .font(.system(.body, design: .rounded))
+                .foregroundStyle(foregroundStyle)
                 .lineLimit(1)
                 .textSelection(.enabled)
+                .opacity(rowOpacity)
 
             Spacer()
+
+            Toggle("Blocca \(site.domain)", isOn: Binding(
+                get: { site.enabled },
+                set: { newValue in
+                    store.setEnabled(newValue, for: site)
+                }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .help(site.enabled ? "Disabilita \(site.domain)" : "Abilita \(site.domain)")
 
             Button {
                 remove(site)
             } label: {
-                Label("Rimuovi", systemImage: "minus")
+                Label("Rimuovi", systemImage: "trash")
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.glass)
@@ -297,6 +318,7 @@ struct ContentView: View {
         .padding(.trailing, 8)
         .padding(.vertical, 8)
         .glassEffect(.clear.interactive(), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .opacity(site.enabled ? 1 : 0.82)
     }
 
     private var footer: some View {
