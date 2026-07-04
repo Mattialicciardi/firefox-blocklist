@@ -8,7 +8,8 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macOS 26 SDK richiesto: l'app usa le API Liquid Glass native (macOS 26+)
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Build
