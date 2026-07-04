@@ -19,13 +19,18 @@ app dà un'interfaccia per farlo senza reinventare quel passaggio ogni volta.
    `~/Library/Application Support/FirefoxBlocklist/sites.json` (nessun
    privilegio richiesto).
 2. Premendo **Applica modifiche**, l'app genera un `policies.json` valido e lo
-   copia in `/Library/Mozilla/Firefox/policies/` tramite
+   copia in `Firefox.app/Contents/Resources/distribution/` tramite
    `osascript ... with administrator privileges` — il prompt di autenticazione
    è quello nativo di macOS (Touch ID/password), la app non vede né salva la
-   password. Questa posizione è ufficialmente supportata da Firefox, è fuori dal
-   bundle dell'app (quindi non soggetta alla protezione *App Management* di
-   macOS) e sopravvive agli aggiornamenti di Firefox.
-3. Nessun input utente viene mai interpolato in una stringa di shell: il
+   password. Su macOS questa è l'**unica** posizione da cui Firefox legge le
+   policy.
+3. **Permesso "Gestione app" (una tantum):** scrivere dentro `Firefox.app` è
+   protetto da macOS (*App Management*). Alla prima applicazione, se compare
+   l'errore, l'app apre Impostazioni → Privacy e sicurezza → **Gestione app**:
+   abilita lì FirefoxBlocklist e ripremi *Applica modifiche*.
+4. Dopo l'applicazione, **riavvia Firefox** (le policy si leggono all'avvio) e
+   verifica su `about:policies`.
+5. Nessun input utente viene mai interpolato in una stringa di shell: il
    comando privilegiato contiene solo percorsi fissi hardcoded.
 
 ## Build

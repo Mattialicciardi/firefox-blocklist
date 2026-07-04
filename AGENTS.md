@@ -25,7 +25,8 @@ Firefox (vedi README).
     `BlockedSite` ha `domain` e `enabled: Bool` (default true; i vecchi
     `sites.json` senza il campo si leggono come abilitati).
   - `SiteStore.apply()`: genera `policies.json` (solo i domini `enabled`) e lo
-    scrive in `/Library/Mozilla/Firefox/policies/` tramite
+    scrive in `Firefox.app/Contents/Resources/distribution/` (unica posizione
+    letta da Firefox su macOS; richiede il permesso "Gestione app") tramite
     `osascript ... with administrator privileges`
   - API di `SiteStore` per la UI: `addSite(_:)`, `removeSite(at:)` (cestino),
     `setEnabled(_:for:)` (toggle abilita/disabilita), `apply()`,

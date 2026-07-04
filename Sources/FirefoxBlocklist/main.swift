@@ -129,19 +129,19 @@ final class SiteStore: ObservableObject {
             return
         }
 
-        // Fuori dal bundle di Firefox.app: posizione ufficiale Mozilla su macOS,
-        // scrivibile da root e non soggetta ad App Management (che vieta la scrittura
-        // dentro un .app). Sopravvive anche agli aggiornamenti di Firefox.
-        let destDir = "/Library/Mozilla/Firefox/policies"
+        // Su macOS Firefox legge le policy SOLO da dentro il bundle: è l'unica posizione
+        // onorata (doc Mozilla). Scriverci richiede il permesso macOS "Gestione app"
+        // (App Management) concesso a questa app.
+        let destDir = "/Applications/Firefox.app/Contents/Resources/distribution"
         let destFile = destDir + "/policies.json"
-        // Vecchia posizione dentro Firefox.app: rimozione best-effort (App Management
-        // può impedirla, ma non deve far fallire la scrittura critica qui sotto).
-        let legacyFile = "/Applications/Firefox.app/Contents/Resources/distribution/policies.json"
+        // File scritto in precedenza FUORI dal bundle (/Library/Mozilla): Firefox su macOS
+        // non lo legge → cleanup best-effort per non lasciare spazzatura fuorviante.
+        let staleFile = "/Library/Mozilla/Firefox/policies/policies.json"
 
         // Only fixed, hardcoded paths are interpolated here — never user-entered text.
-        // Il cleanup del legacy va PRIMA della catena critica (`;`): così l'exit status
+        // Il cleanup dello stale va PRIMA della catena critica (`;`): così l'exit status
         // finale riflette solo mkdir/cp/chmod e un rm fallito non maschera un errore reale.
-        let shellCommand = "rm -f \(shellQuote(legacyFile)) 2>/dev/null; mkdir -p \(shellQuote(destDir)) && cp \(shellQuote(tmpURL.path)) \(shellQuote(destFile)) && chmod 644 \(shellQuote(destFile))"
+        let shellCommand = "rm -f \(shellQuote(staleFile)) 2>/dev/null; mkdir -p \(shellQuote(destDir)) && cp \(shellQuote(tmpURL.path)) \(shellQuote(destFile)) && chmod 644 \(shellQuote(destFile))"
         let appleScript = "do shell script \(appleScriptQuote(shellCommand)) with administrator privileges"
 
         let process = Process()
@@ -161,13 +161,31 @@ final class SiteStore: ObservableObject {
             } else {
                 let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
                 let errStr = String(data: errData, encoding: .utf8) ?? "errore sconosciuto"
-                statusMessage = errStr.contains("User canceled") ? "Annullato." : "Errore: \(errStr)"
+                if errStr.contains("User canceled") {
+                    statusMessage = "Annullato."
+                } else if errStr.range(of: "not permitted", options: .caseInsensitive) != nil {
+                    // App Management: macOS blocca la scrittura dentro Firefox.app finché
+                    // l'utente non abilita questa app in Privacy e sicurezza → Gestione app.
+                    statusMessage = "macOS blocca la scrittura in Firefox.app. Concedi \"Gestione app\" a FirefoxBlocklist nelle Impostazioni (le apro ora), poi riprova."
+                    openAppManagementSettings()
+                } else {
+                    statusMessage = "Errore: \(errStr)"
+                }
             }
         } catch {
             statusMessage = "Errore eseguendo il comando privilegiato."
         }
 
         isApplying = false
+    }
+
+    // Apre Impostazioni di Sistema → Privacy e sicurezza → Gestione app, dove l'utente
+    // abilita FirefoxBlocklist (necessario per scrivere dentro Firefox.app).
+    func openAppManagementSettings() {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        p.arguments = ["x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles"]
+        try? p.run()
     }
 
     func quitAndRelaunchFirefox() {
