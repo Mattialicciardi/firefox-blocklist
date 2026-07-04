@@ -32,10 +32,13 @@ app dà un'interfaccia per farlo senza reinventare quel passaggio ogni volta.
 Richiede solo i Command Line Tools di Xcode (niente Xcode.app).
 
 ```bash
-swift build -c release
+./scripts/bundle.sh          # build + assembla FirefoxBlocklist.app
+open .build/FirefoxBlocklist.app
 ```
 
-L'eseguibile compilato si trova in `.build/release/FirefoxBlocklist`.
+Serve un vero bundle `.app` (con `Info.plist`) perché macOS lanci l'app come
+finestra: un eseguibile SwiftPM "nudo" esce senza mostrare interfaccia. Per la
+sola compilazione del binario basta `swift build -c release`.
 
 ## Verifica
 
