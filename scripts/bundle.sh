@@ -10,6 +10,8 @@ BUILD_CONFIG="release"
 APP_DIR=".build/${APP_NAME}.app"
 CONTENTS="${APP_DIR}/Contents"
 MACOS_DIR="${CONTENTS}/MacOS"
+RESOURCES_DIR="${CONTENTS}/Resources"
+APP_ICON="Resources/AppIcon.icns"
 
 echo "→ swift build -c ${BUILD_CONFIG}"
 swift build -c "${BUILD_CONFIG}"
@@ -17,8 +19,9 @@ swift build -c "${BUILD_CONFIG}"
 BIN_PATH="$(swift build -c ${BUILD_CONFIG} --show-bin-path)/${APP_NAME}"
 
 rm -rf "${APP_DIR}"
-mkdir -p "${MACOS_DIR}"
+mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}"
 cp "${BIN_PATH}" "${MACOS_DIR}/${APP_NAME}"
+cp "${APP_ICON}" "${RESOURCES_DIR}/AppIcon.icns"
 
 cat > "${CONTENTS}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -39,6 +42,8 @@ cat > "${CONTENTS}/Info.plist" <<PLIST
     <string>APPL</string>
     <key>CFBundleExecutable</key>
     <string>${APP_NAME}</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
     <string>26.0</string>
     <key>NSPrincipalClass</key>
