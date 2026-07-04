@@ -7,8 +7,8 @@ struct BlockedSite: Identifiable, Codable, Equatable {
     // (quindi non bloccato). apply() filtra su questo campo.
     var enabled: Bool
 
-    init(domain: String, enabled: Bool = true) {
-        self.id = UUID()
+    init(id: UUID = UUID(), domain: String, enabled: Bool = true) {
+        self.id = id
         self.domain = domain
         self.enabled = enabled
     }
@@ -46,16 +46,34 @@ final class SiteStore: ObservableObject {
             sites = Self.defaultSites()
             return
         }
-        sites = decoded
+        let sanitized = Self.sanitized(decoded)
+        sites = sanitized
+        if sanitized != decoded {
+            persist()
+        }
     }
 
     func persist() {
         guard let data = try? JSONEncoder().encode(sites) else { return }
-        try? data.write(to: storeURL)
+        do {
+            try data.write(to: storeURL, options: [.atomic])
+        } catch {
+            statusMessage = "Impossibile salvare la lista locale."
+        }
     }
 
     static func defaultSites() -> [BlockedSite] {
         ["facebook.com", "instagram.com", "youtube.com", "tiktok.com", "twitter.com", "x.com"].map { BlockedSite(domain: $0) }
+    }
+
+    private static func sanitized(_ decoded: [BlockedSite]) -> [BlockedSite] {
+        var seen = Set<String>()
+        return decoded.compactMap { site in
+            let domain = normalize(site.domain)
+            guard !domain.isEmpty, seen.insert(domain).inserted else { return nil }
+            return BlockedSite(id: site.id, domain: domain, enabled: site.enabled)
+        }
+        .sorted { $0.domain < $1.domain }
     }
 
     func addSite(_ raw: String) {
@@ -87,11 +105,30 @@ final class SiteStore: ObservableObject {
         for prefix in ["https://", "http://", "www."] {
             if s.hasPrefix(prefix) { s.removeFirst(prefix.count) }
         }
-        if let slashIndex = s.firstIndex(of: "/") {
-            s = String(s[s.startIndex..<slashIndex])
+        if let separatorIndex = s.firstIndex(where: { "/?#".contains($0) }) {
+            s = String(s[s.startIndex..<separatorIndex])
         }
+        if let colonIndex = s.firstIndex(of: ":") {
+            let port = s[s.index(after: colonIndex)...]
+            guard !port.isEmpty, port.allSatisfy(\.isNumber) else { return "" }
+            s = String(s[s.startIndex..<colonIndex])
+        }
+        s = s.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789.-")
-        guard !s.isEmpty, s.contains("."), s.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return "" }
+        guard !s.isEmpty,
+              s.count <= 253,
+              s.contains("."),
+              s.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return "" }
+
+        let labels = s.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.count >= 2 else { return "" }
+        for label in labels {
+            guard !label.isEmpty,
+                  label.count <= 63,
+                  label.first != "-",
+                  label.last != "-" else { return "" }
+        }
         return s
     }
 
@@ -141,7 +178,7 @@ final class SiteStore: ObservableObject {
         // Only fixed, hardcoded paths are interpolated here — never user-entered text.
         // Il cleanup del legacy va PRIMA della catena critica (`;`): così l'exit status
         // finale riflette solo mkdir/cp/chmod e un rm fallito non maschera un errore reale.
-        let shellCommand = "rm -f \(shellQuote(legacyFile)) 2>/dev/null; mkdir -p \(shellQuote(destDir)) && cp \(shellQuote(tmpURL.path)) \(shellQuote(destFile)) && chmod 644 \(shellQuote(destFile))"
+        let shellCommand = "/bin/rm -f \(shellQuote(legacyFile)) 2>/dev/null; /bin/mkdir -p \(shellQuote(destDir)) && /bin/cp \(shellQuote(tmpURL.path)) \(shellQuote(destFile)) && /bin/chmod 644 \(shellQuote(destFile))"
         let appleScript = "do shell script \(appleScriptQuote(shellCommand)) with administrator privileges"
 
         let process = Process()
@@ -323,45 +360,122 @@ struct ContentView: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if !store.statusMessage.isEmpty {
-                Text(store.statusMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if let status = statusPresentation {
+                statusBanner(status)
             }
 
-            HStack(spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
                 Spacer()
 
-                Button {
-                    store.quitAndRelaunchFirefox()
-                } label: {
-                    Label("Riavvia Firefox", systemImage: "arrow.clockwise")
+                if isAppliedStatus {
+                    applyButton
+                        .buttonStyle(.glass)
+                    restartButton
+                        .buttonStyle(.glassProminent)
+                } else {
+                    restartButton
+                        .buttonStyle(.glass)
+                    applyButton
+                        .buttonStyle(.glassProminent)
                 }
-                .buttonStyle(.glass)
-
-                Button {
-                    store.apply()
-                } label: {
-                    if store.isApplying {
-                        Label {
-                            Text("Applica modifiche")
-                        } icon: {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                    } else {
-                        Label("Applica modifiche", systemImage: "checkmark.shield")
-                    }
-                }
-                .buttonStyle(.glassProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(store.isApplying)
             }
         }
         .padding(16)
-        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .glassEffect(.regular.tint(statusPresentation?.tint.opacity(0.08)).interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private var statusPresentation: StatusPresentation? {
+        let message = store.statusMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return nil }
+
+        if store.isApplying {
+            return StatusPresentation(
+                icon: "progress.indicator",
+                title: "Scrittura policy in corso",
+                detail: "macOS potrebbe chiedere l'autenticazione.",
+                tint: .cyan
+            )
+        }
+
+        if message.contains("Applicato") {
+            return StatusPresentation(
+                icon: "checkmark.circle",
+                title: "Modifiche applicate",
+                detail: "Riavvia Firefox per renderle attive.",
+                tint: .cyan
+            )
+        }
+
+        if message == "Annullato." {
+            return StatusPresentation(
+                icon: "xmark.circle",
+                title: "Operazione annullata",
+                detail: "Nessuna modifica alla policy.",
+                tint: .secondary
+            )
+        }
+
+        let detail = message.replacingOccurrences(of: "Errore: ", with: "")
+        return StatusPresentation(
+            icon: "exclamationmark.triangle",
+            title: "Modifiche non applicate",
+            detail: detail,
+            tint: .orange
+        )
+    }
+
+    private var isAppliedStatus: Bool {
+        store.statusMessage.contains("Applicato") && !store.isApplying
+    }
+
+    private func statusBanner(_ status: StatusPresentation) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: status.icon)
+                .symbolEffect(.pulse, isActive: store.isApplying)
+                .foregroundStyle(status.tint)
+                .frame(width: 22)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(status.title)
+                    .font(.callout.weight(.medium))
+                Text(status.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var restartButton: some View {
+        Button {
+            store.quitAndRelaunchFirefox()
+        } label: {
+            Label("Riavvia Firefox", systemImage: "arrow.clockwise")
+        }
+    }
+
+    private var applyButton: some View {
+        Button {
+            store.apply()
+        } label: {
+            if store.isApplying {
+                Label {
+                    Text("Applica modifiche")
+                } icon: {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            } else {
+                Label("Applica modifiche", systemImage: "checkmark.shield")
+            }
+        }
+        .keyboardShortcut(.defaultAction)
+        .disabled(store.isApplying)
     }
 
     private func addCurrent() {
@@ -372,6 +486,13 @@ struct ContentView: View {
     private func remove(_ site: BlockedSite) {
         guard let index = store.sites.firstIndex(of: site) else { return }
         store.removeSite(at: IndexSet(integer: index))
+    }
+
+    private struct StatusPresentation {
+        let icon: String
+        let title: String
+        let detail: String
+        let tint: Color
     }
 }
 

@@ -13,8 +13,9 @@ SOURCE_PNG="${WORK_DIR}/AppIcon-1024.png"
 DRAW_SWIFT="${WORK_DIR}/draw-icon.swift"
 DEST_ICNS="${RESOURCES_DIR}/AppIcon.icns"
 MODULE_CACHE="${WORK_DIR}/module-cache"
+SWIFT_BIN="/usr/bin/swift"
 
-mkdir -p "${WORK_DIR}" "${RESOURCES_DIR}" "${MODULE_CACHE}"
+/bin/mkdir -p "${WORK_DIR}" "${RESOURCES_DIR}" "${MODULE_CACHE}"
 export CLANG_MODULE_CACHE_PATH="${MODULE_CACHE}"
 
 cat > "${DRAW_SWIFT}" <<'SWIFT'
@@ -57,11 +58,11 @@ context.clip()
 let gradient = CGGradient(
     colorsSpace: colorSpace,
     colors: [
-        color(13, 20, 31),
-        color(19, 68, 83),
-        color(48, 190, 210, 0.88)
+        color(10, 15, 22),
+        color(13, 29, 36),
+        color(18, 97, 111)
     ] as CFArray,
-    locations: [0, 0.62, 1]
+    locations: [0, 0.72, 1]
 )!
 context.drawLinearGradient(
     gradient,
@@ -70,26 +71,15 @@ context.drawLinearGradient(
     options: []
 )
 
-let topGlow = CGGradient(
-    colorsSpace: colorSpace,
-    colors: [color(255, 255, 255, 0.34), color(255, 255, 255, 0.0)] as CFArray,
-    locations: [0, 1]
-)!
-context.drawLinearGradient(
-    topGlow,
-    start: CGPoint(x: iconRect.midX, y: iconRect.maxY - 34),
-    end: CGPoint(x: iconRect.midX, y: iconRect.midY + 70),
-    options: []
-)
 context.restoreGState()
 
 context.addPath(squircle)
-context.setStrokeColor(color(178, 247, 255, 0.28))
-context.setLineWidth(14)
+context.setStrokeColor(color(126, 236, 247, 0.36))
+context.setLineWidth(12)
 context.strokePath()
 
 let center = CGPoint(x: 512, y: 512)
-let globeRadius: CGFloat = 254
+let globeRadius: CGFloat = 238
 let globeRect = CGRect(
     x: center.x - globeRadius,
     y: center.y - globeRadius,
@@ -101,26 +91,19 @@ let globePath = CGPath(ellipseIn: globeRect, transform: nil)
 context.saveGState()
 context.addPath(globePath)
 context.clip()
-context.setStrokeColor(color(111, 234, 248, 0.92))
-context.setLineWidth(38)
+context.setStrokeColor(color(118, 238, 248, 0.96))
+context.setLineWidth(34)
 context.setLineCap(.round)
 context.setLineJoin(.round)
 
 context.addEllipse(in: globeRect)
 context.strokePath()
 
-for offset in [-114.0, 114.0] {
-    let latitudeRect = CGRect(
-        x: center.x - globeRadius,
-        y: center.y + offset - 95,
-        width: globeRadius * 2,
-        height: 190
-    )
-    context.addEllipse(in: latitudeRect)
-    context.strokePath()
-}
+context.move(to: CGPoint(x: center.x - globeRadius + 22, y: center.y))
+context.addLine(to: CGPoint(x: center.x + globeRadius - 22, y: center.y))
+context.strokePath()
 
-for longitudeWidth in [190.0, 330.0] {
+for longitudeWidth in [172.0, 318.0] {
     let longitudeRect = CGRect(
         x: center.x - longitudeWidth / 2,
         y: center.y - globeRadius,
@@ -134,16 +117,16 @@ context.restoreGState()
 
 context.setLineCap(.round)
 context.setLineJoin(.round)
-context.setStrokeColor(color(7, 18, 28, 0.72))
-context.setLineWidth(104)
-context.move(to: CGPoint(x: 312, y: 718))
-context.addLine(to: CGPoint(x: 712, y: 318))
+context.setStrokeColor(color(6, 12, 18, 0.88))
+context.setLineWidth(110)
+context.move(to: CGPoint(x: 318, y: 706))
+context.addLine(to: CGPoint(x: 706, y: 318))
 context.strokePath()
 
-context.setStrokeColor(color(156, 247, 255, 0.98))
-context.setLineWidth(72)
-context.move(to: CGPoint(x: 322, y: 708))
-context.addLine(to: CGPoint(x: 702, y: 328))
+context.setStrokeColor(color(128, 244, 252))
+context.setLineWidth(68)
+context.move(to: CGPoint(x: 326, y: 698))
+context.addLine(to: CGPoint(x: 698, y: 326))
 context.strokePath()
 
 guard let cgImage = context.makeImage(),
@@ -163,10 +146,10 @@ guard CGImageDestinationFinalize(destination) else {
 SWIFT
 
 echo "-> genero sorgente 1024x1024"
-swift "${DRAW_SWIFT}" "${SOURCE_PNG}"
+"${SWIFT_BIN}" "${DRAW_SWIFT}" "${SOURCE_PNG}"
 
-rm -rf "${ICONSET}"
-mkdir -p "${ICONSET}"
+/bin/rm -rf "${ICONSET}"
+/bin/mkdir -p "${ICONSET}"
 
 make_icon() {
     local pixels="$1"
