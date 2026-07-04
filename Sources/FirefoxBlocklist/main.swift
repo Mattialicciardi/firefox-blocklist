@@ -3,10 +3,25 @@ import SwiftUI
 struct BlockedSite: Identifiable, Codable, Equatable {
     let id: UUID
     var domain: String
+    // Se false, il sito resta in lista ma NON viene scritto in policies.json
+    // (quindi non bloccato). apply() filtra su questo campo.
+    var enabled: Bool
 
-    init(domain: String) {
+    init(domain: String, enabled: Bool = true) {
         self.id = UUID()
         self.domain = domain
+        self.enabled = enabled
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, domain, enabled }
+
+    // Migrazione: i sites.json scritti prima di questo campo non hanno `enabled`
+    // → li leggiamo come abilitati (comportamento invariato per le liste esistenti).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        domain = try c.decode(String.self, forKey: .domain)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
     }
 }
 
@@ -40,7 +55,7 @@ final class SiteStore: ObservableObject {
     }
 
     static func defaultSites() -> [BlockedSite] {
-        ["facebook.com", "instagram.com", "youtube.com", "tiktok.com", "twitter.com", "x.com"].map(BlockedSite.init)
+        ["facebook.com", "instagram.com", "youtube.com", "tiktok.com", "twitter.com", "x.com"].map { BlockedSite(domain: $0) }
     }
 
     func addSite(_ raw: String) {
@@ -54,6 +69,14 @@ final class SiteStore: ObservableObject {
 
     func removeSite(at offsets: IndexSet) {
         sites.remove(atOffsets: offsets)
+        persist()
+    }
+
+    // Abilita/disabilita il blocco di un sito senza rimuoverlo dalla lista.
+    // Da usare dalla UI (toggle per riga).
+    func setEnabled(_ enabled: Bool, for site: BlockedSite) {
+        guard let idx = sites.firstIndex(where: { $0.id == site.id }) else { return }
+        sites[idx].enabled = enabled
         persist()
     }
 
@@ -76,7 +99,9 @@ final class SiteStore: ObservableObject {
         isApplying = true
         statusMessage = "Applico le modifiche…"
 
-        let patterns = sites.flatMap { site in
+        // Solo i domini abilitati finiscono nella policy: i disabilitati restano
+        // in lista ma non vengono bloccati.
+        let patterns = sites.filter { $0.enabled }.flatMap { site in
             ["*://\(site.domain)/*", "*://*.\(site.domain)/*"]
         }
 
@@ -197,12 +222,16 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Firefox Blocklist")
                 .font(.system(size: 30, weight: .semibold, design: .rounded))
-            Text("\(store.sites.count) domini bloccati")
+            Text("\(activeSitesCount) di \(store.sites.count) bloccati")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 4)
+    }
+
+    private var activeSitesCount: Int {
+        store.sites.filter { $0.enabled }.count
     }
 
     private var addSiteBar: some View {
@@ -246,23 +275,40 @@ struct ContentView: View {
     }
 
     private func domainRow(_ site: BlockedSite) -> some View {
-        HStack(spacing: 12) {
+        let rowOpacity = site.enabled ? 1.0 : 0.58
+        let foregroundStyle: HierarchicalShapeStyle = site.enabled ? .primary : .secondary
+
+        return HStack(spacing: 12) {
             Image(systemName: "globe")
                 .font(.body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(site.enabled ? .cyan.opacity(0.72) : .secondary)
                 .frame(width: 24)
+                .opacity(rowOpacity)
 
             Text(site.domain)
                 .font(.system(.body, design: .rounded))
+                .foregroundStyle(foregroundStyle)
                 .lineLimit(1)
                 .textSelection(.enabled)
+                .opacity(rowOpacity)
 
             Spacer()
+
+            Toggle("Blocca \(site.domain)", isOn: Binding(
+                get: { site.enabled },
+                set: { newValue in
+                    store.setEnabled(newValue, for: site)
+                }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .help(site.enabled ? "Disabilita \(site.domain)" : "Abilita \(site.domain)")
 
             Button {
                 remove(site)
             } label: {
-                Label("Rimuovi", systemImage: "minus")
+                Label("Rimuovi", systemImage: "trash")
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.glass)
@@ -272,6 +318,7 @@ struct ContentView: View {
         .padding(.trailing, 8)
         .padding(.vertical, 8)
         .glassEffect(.clear.interactive(), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .opacity(site.enabled ? 1 : 0.82)
     }
 
     private var footer: some View {

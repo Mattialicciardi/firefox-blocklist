@@ -21,9 +21,15 @@ Firefox (vedi README).
 
 - `Sources/FirefoxBlocklist/main.swift`: unico file sorgente.
   - `BlockedSite` / `SiteStore`: modello + persistenza in
-    `~/Library/Application Support/FirefoxBlocklist/sites.json`
-  - `SiteStore.apply()`: genera `policies.json` e lo scrive in
-    `Firefox.app` tramite `osascript ... with administrator privileges`
+    `~/Library/Application Support/FirefoxBlocklist/sites.json`.
+    `BlockedSite` ha `domain` e `enabled: Bool` (default true; i vecchi
+    `sites.json` senza il campo si leggono come abilitati).
+  - `SiteStore.apply()`: genera `policies.json` (solo i domini `enabled`) e lo
+    scrive in `/Library/Mozilla/Firefox/policies/` tramite
+    `osascript ... with administrator privileges`
+  - API di `SiteStore` per la UI: `addSite(_:)`, `removeSite(at:)` (cestino),
+    `setEnabled(_:for:)` (toggle abilita/disabilita), `apply()`,
+    `quitAndRelaunchFirefox()`. La UI chiama SOLO questi metodi.
   - `ContentView`: unica schermata (lista + form aggiungi + pulsanti azione)
 
 ## Cosa non toccare / pattern approvati
