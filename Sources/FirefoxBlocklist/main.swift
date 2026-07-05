@@ -30,6 +30,8 @@ final class SiteStore: ObservableObject {
     @Published var sites: [BlockedSite] = []
     @Published var statusMessage: String = ""
     @Published var isApplying: Bool = false
+    // true se il file di blocco è già nella posizione corretta dentro Firefox.app.
+    @Published var policyInstalled: Bool = false
 
     private let storeURL: URL
 
@@ -39,6 +41,7 @@ final class SiteStore: ObservableObject {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         storeURL = dir.appendingPathComponent("sites.json")
         load()
+        refreshPolicyStatus()
     }
 
     func load() {
@@ -97,6 +100,12 @@ final class SiteStore: ObservableObject {
         guard let idx = sites.firstIndex(where: { $0.id == site.id }) else { return }
         sites[idx].enabled = enabled
         persist()
+    }
+
+    // Aggiorna `policyInstalled` leggendo se il file di blocco è già nella posizione
+    // corretta di Firefox. È solo una lettura: non richiede App Management/permessi.
+    func refreshPolicyStatus() {
+        policyInstalled = FileManager.default.fileExists(atPath: Self.policiesFile)
     }
 
     // Strips scheme/www/path and allows only characters valid in a hostname.
@@ -194,6 +203,8 @@ final class SiteStore: ObservableObject {
         } catch {
             statusMessage = "Errore imprevisto: \(error.localizedDescription)"
         }
+
+        refreshPolicyStatus()   // riflette se il file è ora presente nel bundle
     }
 
     // Scrive policies.json DIRETTAMENTE via syscall POSIX (per leggere errno in modo
@@ -331,6 +342,7 @@ final class SiteStore: ObservableObject {
 struct ContentView: View {
     @ObservedObject var store: SiteStore
     @State private var newSite: String = ""
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -350,6 +362,12 @@ struct ContentView: View {
         }
         .tint(.cyan.opacity(0.55))
         .frame(minWidth: 520, minHeight: 600)
+        // Rileva se il file di blocco è ancora al posto giusto (es. un update di
+        // Firefox può averlo rimosso mentre l'app era in background).
+        .onAppear { store.refreshPolicyStatus() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { store.refreshPolicyStatus() }
+        }
     }
 
     private var header: some View {
@@ -457,6 +475,8 @@ struct ContentView: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 12) {
+            policyStatusRow
+
             if let status = statusPresentation {
                 statusBanner(status)
             }
@@ -523,6 +543,42 @@ struct ContentView: View {
 
     private var isAppliedStatus: Bool {
         store.statusMessage.contains("Applicato") && !store.isApplying
+    }
+
+    // Stato: il file di blocco è nella posizione corretta di Firefox? Se manca (es.
+    // dopo un update di Firefox), offre "Ripristina in Firefox" che riusa apply().
+    private var policyStatusRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: store.policyInstalled ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(store.policyInstalled ? Color.cyan : Color.orange)
+                .frame(width: 22)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(store.policyInstalled ? "Blocco installato in Firefox" : "Blocco non installato in Firefox")
+                    .font(.callout.weight(.medium))
+                Text(store.policyInstalled
+                     ? "Il file di blocco è nella posizione corretta."
+                     : "Firefox non ha il file di blocco: ripristinalo per attivarlo.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 0)
+
+            if !store.policyInstalled {
+                Button {
+                    store.apply()
+                } label: {
+                    Label("Ripristina in Firefox", systemImage: "arrow.clockwise.circle")
+                }
+                .buttonStyle(.glass)
+                .disabled(store.isApplying)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func statusBanner(_ status: StatusPresentation) -> some View {
