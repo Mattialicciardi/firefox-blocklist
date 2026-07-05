@@ -12,6 +12,14 @@ DEST="/Applications/${APP_NAME}.app"
 
 ./scripts/bundle.sh
 
+case "${DEST}" in
+    /Applications/*.app) ;;
+    *)
+        echo "Destinazione install non valida: ${DEST}"
+        exit 1
+        ;;
+esac
+
 if [ ! -w /Applications ]; then
     echo "❌ /Applications non è scrivibile dal tuo utente."
     echo "   Trascina manualmente ${BUILT_APP} in Applicazioni, oppure:"
@@ -20,8 +28,8 @@ if [ ! -w /Applications ]; then
 fi
 
 echo "→ Installo in ${DEST}"
-rm -rf "${DEST}"
-cp -R "${BUILT_APP}" "${DEST}"
+/bin/rm -rf "${DEST}"
+/bin/cp -R "${BUILT_APP}" "${DEST}"
 
 echo "✅ Installato: ${DEST}"
 echo "   Aprilo da Launchpad/Spotlight o con:  open \"${DEST}\""

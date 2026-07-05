@@ -13,15 +13,20 @@ MACOS_DIR="${CONTENTS}/MacOS"
 RESOURCES_DIR="${CONTENTS}/Resources"
 APP_ICON="Resources/AppIcon.icns"
 
+if [ ! -f "${APP_ICON}" ]; then
+    echo "Icona mancante: ${APP_ICON}. Rigenerala con ./scripts/make-icon.sh"
+    exit 1
+fi
+
 echo "→ swift build -c ${BUILD_CONFIG}"
 swift build -c "${BUILD_CONFIG}"
 
 BIN_PATH="$(swift build -c ${BUILD_CONFIG} --show-bin-path)/${APP_NAME}"
 
-rm -rf "${APP_DIR}"
-mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}"
-cp "${BIN_PATH}" "${MACOS_DIR}/${APP_NAME}"
-cp "${APP_ICON}" "${RESOURCES_DIR}/AppIcon.icns"
+/bin/rm -rf "${APP_DIR}"
+/bin/mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}"
+/bin/cp "${BIN_PATH}" "${MACOS_DIR}/${APP_NAME}"
+/bin/cp "${APP_ICON}" "${RESOURCES_DIR}/AppIcon.icns"
 
 cat > "${CONTENTS}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
