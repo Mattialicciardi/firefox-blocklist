@@ -1,4 +1,5 @@
 import SwiftUI
+import Darwin   // mkdir, rmdir, open, write, close, rename, chmod, errno, EPERM, EACCES
 
 struct BlockedSite: Identifiable, Codable, Equatable {
     let id: UUID
@@ -132,79 +133,183 @@ final class SiteStore: ObservableObject {
         return s
     }
 
+    // Errori di apply(): la distinzione EPERM/EACCES è letta direttamente da errno
+    // delle syscall POSIX, non dedotta da NSError (che collassa in Cocoa 513).
+    enum ApplyError: Error {
+        case appManagementDenied(path: String)   // EPERM  → TCC "Gestione app"
+        case ownershipDenied(path: String)        // EACCES → permessi POSIX
+        case needsManualCleanup(path: String)     // dir residua root-owned non svuotabile come utente
+        case posix(path: String, code: Int32)     // altro errno
+    }
+
+    // Path FISSI, hardcoded. Nessun input utente entra mai qui.
+    private static let firefoxResources = "/Applications/Firefox.app/Contents/Resources"
+    private static let distributionDir  = firefoxResources + "/distribution"
+    private static let policiesFile     = distributionDir + "/policies.json"
+    private static let staleFile        = "/Library/Mozilla/Firefox/policies/policies.json"
+
     func apply() {
         isApplying = true
         statusMessage = "Applico le modifiche…"
+        defer { isApplying = false }
 
-        // Solo i domini abilitati finiscono nella policy: i disabilitati restano
-        // in lista ma non vengono bloccati.
+        // Solo i domini abilitati finiscono nella policy. I domini (input utente)
+        // restano confinati nel JSON generato con JSONSerialization: nessuna shell,
+        // nessun osascript, nessuna elevazione admin.
         let patterns = sites.filter { $0.enabled }.flatMap { site in
             ["*://\(site.domain)/*", "*://*.\(site.domain)/*"]
         }
-
         let policy: [String: Any] = [
-            "policies": [
-                "WebsiteFilter": [
-                    "Block": patterns,
-                    "Exceptions": []
-                ]
-            ]
+            "policies": ["WebsiteFilter": ["Block": patterns, "Exceptions": []]]
         ]
-
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: policy, options: [.prettyPrinted, .sortedKeys]) else {
+        guard let jsonData = try? JSONSerialization.data(
+            withJSONObject: policy, options: [.prettyPrinted, .sortedKeys]
+        ) else {
             statusMessage = "Errore nella generazione del file."
-            isApplying = false
             return
         }
 
-        let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent("policies-\(UUID().uuidString).json")
+        // Scrittura DIRETTA come processo dell'app (niente osascript/admin): è ciò che
+        // fa attribuire l'operazione a FirefoxBlocklist e la registra in "Gestione app"
+        // (con osascript+admin l'operazione è del trampolino root → l'app non compare
+        // mai in lista). Su macOS Firefox legge le policy SOLO da qui, nel bundle.
         do {
-            try jsonData.write(to: tmpURL)
+            try writePoliciesDirectly(jsonData)
+            cleanupStaleBestEffort()
+            statusMessage = "✅ Applicato. Riavvia Firefox per attivare i cambiamenti."
+        } catch ApplyError.appManagementDenied {
+            // EPERM: App Management blocca la scrittura nel bundle. Questo primo tentativo
+            // ha però registrato l'app in "Gestione app": ora è abilitabile.
+            statusMessage = "macOS blocca la scrittura in Firefox.app. Abilita \"FirefoxBlocklist\" in Impostazioni → Privacy e sicurezza → Gestione app (le apro ora), poi ripremi Applica."
+            openAppManagementSettings()
+        } catch ApplyError.ownershipDenied(let path) {
+            // EACCES: permessi POSIX, NON risolvibile da Gestione app → nessun pannello.
+            statusMessage = "Permessi filesystem insufficienti su \(path). Non è un problema di Gestione app."
+        } catch ApplyError.needsManualCleanup(let path) {
+            // Vecchia dir root-owned e non vuota: come utente non è svuotabile → serve
+            // una rimozione manuale una-tantum col Terminale.
+            statusMessage = "C'è una vecchia cartella protetta da rimuovere una volta sola. Apri il Terminale ed esegui:  sudo rm -rf \"\(path)\"  poi ripremi Applica."
+        } catch ApplyError.posix(let path, let code) {
+            statusMessage = "Errore POSIX \(code) su \(path)."
         } catch {
-            statusMessage = "Errore scrivendo il file temporaneo."
-            isApplying = false
-            return
+            statusMessage = "Errore imprevisto: \(error.localizedDescription)"
+        }
+    }
+
+    // Scrive policies.json DIRETTAMENTE via syscall POSIX (per leggere errno in modo
+    // deterministico: EPERM = App Management, EACCES = POSIX). Contents/Resources è
+    // sotto App Management: la PRIMA operazione di scrittura (di norma il mkdir di
+    // distribution/) prende EPERM finché l'utente non concede il permesso.
+    private func writePoliciesDirectly(_ data: Data) throws {
+        var isDir: ObjCBool = false
+        let existed = FileManager.default.fileExists(atPath: Self.distributionDir, isDirectory: &isDir)
+
+        if existed && !isDir.boolValue {
+            try unlinkChecked(Self.distributionDir)   // 'distribution' è un file: rimpiazza
+            try mkdirChecked(Self.distributionDir)
+        } else if !existed {
+            try mkdirChecked(Self.distributionDir)
         }
 
-        // Fuori dal bundle di Firefox.app: posizione ufficiale Mozilla su macOS,
-        // scrivibile da root e non soggetta ad App Management (che vieta la scrittura
-        // dentro un .app). Sopravvive anche agli aggiornamenti di Firefox.
-        let destDir = "/Library/Mozilla/Firefox/policies"
-        let destFile = destDir + "/policies.json"
-        // Vecchia posizione dentro Firefox.app: rimozione best-effort (App Management
-        // può impedirla, ma non deve far fallire la scrittura critica qui sotto).
-        let legacyFile = "/Applications/Firefox.app/Contents/Resources/distribution/policies.json"
-
-        // Only fixed, hardcoded paths are interpolated here — never user-entered text.
-        // Il cleanup del legacy va PRIMA della catena critica (`;`): così l'exit status
-        // finale riflette solo mkdir/cp/chmod e un rm fallito non maschera un errore reale.
-        let shellCommand = "/bin/rm -f \(shellQuote(legacyFile)) 2>/dev/null; /bin/mkdir -p \(shellQuote(destDir)) && /bin/cp \(shellQuote(tmpURL.path)) \(shellQuote(destFile)) && /bin/chmod 644 \(shellQuote(destFile))"
-        let appleScript = "do shell script \(appleScriptQuote(shellCommand)) with administrator privileges"
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", appleScript]
-
-        let errPipe = Pipe()
-        process.standardError = errPipe
-
         do {
-            try process.run()
-            process.waitUntilExit()
-            try? FileManager.default.removeItem(at: tmpURL)
+            try atomicWrite(data, to: Self.policiesFile, in: Self.distributionDir)
+        } catch ApplyError.ownershipDenied {
+            // La dir esiste ma non è nostra (residuo root-owned da vecchi sudo):
+            // proviamo a bonificarla, poi riproviamo la scrittura.
+            try reclaimDistributionDir()
+            try atomicWrite(data, to: Self.policiesFile, in: Self.distributionDir)
+        }
+        chmodBestEffort(Self.policiesFile, 0o644)
+    }
 
-            if process.terminationStatus == 0 {
-                statusMessage = "✅ Applicato. Riavvia Firefox per attivare i cambiamenti."
-            } else {
-                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-                let errStr = String(data: errData, encoding: .utf8) ?? "errore sconosciuto"
-                statusMessage = errStr.contains("User canceled") ? "Annullato." : "Errore: \(errStr)"
+    // Bonifica una `distribution/` residua non nostra (root-owned da vecchi sudo).
+    // Rimuovere una VOCE dalla dir padre `Resources` (nostra) è permesso, ma `rmdir`
+    // richiede la dir VUOTA: proviamo prima a togliere un policies.json residuo
+    // (riesce solo se la dir è già nostra). Se la dir è root-owned e non svuotabile
+    // come utente, `rmdir` dà ENOTEMPTY/EACCES → serve una rimozione manuale.
+    private func reclaimDistributionDir() throws {
+        _ = Self.policiesFile.withCString { unlink($0) }   // best-effort
+        if Self.distributionDir.withCString({ rmdir($0) }) != 0 {
+            let e = errno
+            switch e {
+            case EPERM:             throw ApplyError.appManagementDenied(path: Self.distributionDir)
+            case EACCES, ENOTEMPTY: throw ApplyError.needsManualCleanup(path: Self.distributionDir)
+            default:                throw ApplyError.posix(path: Self.distributionDir, code: e)
             }
-        } catch {
-            statusMessage = "Errore eseguendo il comando privilegiato."
+        }
+        try mkdirChecked(Self.distributionDir)
+    }
+
+    // Scrittura atomica: file temporaneo nella STESSA dir + rename(2).
+    private func atomicWrite(_ data: Data, to finalPath: String, in dir: String) throws {
+        let tmpPath = dir + "/.policies-\(UUID().uuidString).tmp"
+        let fd = tmpPath.withCString { open($0, O_CREAT | O_WRONLY | O_TRUNC, 0o644) }
+        if fd < 0 { throw mapErrno(errno, path: tmpPath) }
+
+        var writeErr: Int32 = 0
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            guard let base = raw.baseAddress else { return }
+            var off = 0
+            let total = raw.count
+            while off < total {
+                let n = write(fd, base + off, total - off)
+                if n <= 0 { writeErr = errno; break }
+                off += n
+            }
+        }
+        if writeErr != 0 {
+            close(fd)
+            _ = tmpPath.withCString { unlink($0) }
+            throw mapErrno(writeErr, path: tmpPath)
+        }
+        if close(fd) != 0 {
+            let e = errno
+            _ = tmpPath.withCString { unlink($0) }
+            throw mapErrno(e, path: tmpPath)
         }
 
-        isApplying = false
+        let renamed = tmpPath.withCString { src in
+            finalPath.withCString { dst in rename(src, dst) }
+        }
+        if renamed != 0 {
+            let e = errno
+            _ = tmpPath.withCString { unlink($0) }
+            throw mapErrno(e, path: finalPath)
+        }
+    }
+
+    private func mkdirChecked(_ path: String) throws {
+        if path.withCString({ mkdir($0, 0o755) }) != 0 { throw mapErrno(errno, path: path) }
+    }
+    private func unlinkChecked(_ path: String) throws {
+        if path.withCString({ unlink($0) }) != 0 { throw mapErrno(errno, path: path) }
+    }
+    private func chmodBestEffort(_ path: String, _ mode: mode_t) {
+        _ = path.withCString { chmod($0, mode) }
+    }
+
+    // UNICA fonte di verità EPERM vs EACCES: legge errno grezzo dalla syscall.
+    private func mapErrno(_ code: Int32, path: String) -> ApplyError {
+        switch code {
+        case EPERM:  return .appManagementDenied(path: path)   // 1  → TCC App Management
+        case EACCES: return .ownershipDenied(path: path)        // 13 → POSIX
+        default:     return .posix(path: path, code: code)
+        }
+    }
+
+    // Rimuove il file stale scritto in passato FUORI dal bundle (/Library/Mozilla),
+    // che Firefox su macOS non legge. Best-effort, silenzioso.
+    private func cleanupStaleBestEffort() {
+        _ = Self.staleFile.withCString { unlink($0) }
+    }
+
+    // Apre Impostazioni di Sistema → Privacy e sicurezza → Gestione app, dove l'utente
+    // abilita FirefoxBlocklist (necessario per scrivere dentro Firefox.app).
+    func openAppManagementSettings() {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        p.arguments = ["x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles"]
+        try? p.run()
     }
 
     func quitAndRelaunchFirefox() {
@@ -221,14 +326,6 @@ final class SiteStore: ObservableObject {
             try? relaunch.run()
         }
     }
-}
-
-func shellQuote(_ s: String) -> String {
-    "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-}
-
-func appleScriptQuote(_ s: String) -> String {
-    "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
 }
 
 struct ContentView: View {
