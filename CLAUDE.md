@@ -18,14 +18,29 @@ file aggiunge come ragionare nel progetto, non lo ripete.
 
 ## Limiti di sicurezza da rispettare sempre
 
-Questa app scrive in `Firefox.app/Contents/Resources/distribution/policies.json`
-con privilegi elevati — su macOS è l'unica posizione letta da Firefox, e richiede
-il permesso "Gestione app" (App Management). Qualsiasi
-modifica a `SiteStore.apply()` o alla costruzione del comando shell deve
-mantenere la proprietà: **nessuna stringa proveniente dall'utente entra
-mai nel comando eseguito con `administrator privileges`**. Se una PR
-tocca quella funzione, evidenzialo esplicitamente nella sezione "Risks"
-del template PR.
+`SiteStore.apply()` scrive `policies.json` in
+`Firefox.app/Contents/Resources/distribution/` — su macOS è l'unica posizione
+letta da Firefox. La scrittura avviene **direttamente dal processo dell'app**
+via syscall POSIX (`mkdir`/`open`/`write`/`rename`), come utente, **senza
+`osascript` e senza `administrator privileges`**: è ciò che fa attribuire
+l'operazione a FirefoxBlocklist e la rende concedibile in Impostazioni →
+Privacy e sicurezza → "Gestione app" (App Management), il gate che autorizza la
+scrittura nel bundle. La ri-firma ad-hoc con identifier stabile (in
+`scripts/install.sh`, sulla copia in /Applications perché `.build/` sotto
+~/Desktop è iCloud-synced e `codesign` fallirebbe) è **obbligatoria** perché
+il grant App Management si agganci.
+
+Invarianti da preservare in qualsiasi modifica ad `apply()`:
+- **Nessuna scrittura passa da `osascript`/`administrator privileges` o da una
+  shell.** (Con quel meccanismo l'operazione è del trampolino root → l'app non
+  compare mai in "Gestione app" → stallo.)
+- **I domini (input utente) restano confinati nel JSON** generato con
+  `JSONSerialization`; non entrano mai in path, comandi o stringhe eseguite.
+- La distinzione EPERM (App Management) vs EACCES (POSIX) va letta da `errno`
+  delle syscall, non da `NSError` (che collassa in Cocoa 513).
+
+Se una PR tocca `apply()` o `scripts/bundle.sh` (firma), evidenzialo nella
+sezione "Risks" del template PR.
 
 ## Flusso con altri agenti (Codex)
 

@@ -23,5 +23,18 @@ echo "→ Installo in ${DEST}"
 rm -rf "${DEST}"
 cp -R "${BUILT_APP}" "${DEST}"
 
-echo "✅ Installato: ${DEST}"
+# Ri-firma ad-hoc con identifier STABILE (= CFBundleIdentifier), sulla copia in
+# /Applications (fuori da iCloud, quindi xattr rimovibili in modo deterministico).
+# Obbligatorio: il binario SwiftPM è linker-signed con Identifier=FirefoxBlocklist
+# e senza _CodeSignature (codesign --verify fallisce). Senza un'identità di firma
+# coerente e verificante, il permesso macOS "Gestione app" NON si aggancia all'app
+# → l'utente la abilita ma la scrittura continua a fallire. La firma completa
+# sigilla le risorse e allinea l'identità al bundle id.
+BUNDLE_ID="com.mattialicciardi.firefoxblocklist"
+echo "→ ri-firmo (ad-hoc, identifier ${BUNDLE_ID})"
+/usr/bin/xattr -cr "${DEST}"                                    # rimuove FinderInfo/quarantine
+codesign --force --sign - --identifier "${BUNDLE_ID}" "${DEST}"
+codesign --verify --strict "${DEST}"                            # set -e: fallisce se non verifica
+
+echo "✅ Installato e firmato: ${DEST}"
 echo "   Aprilo da Launchpad/Spotlight o con:  open \"${DEST}\""

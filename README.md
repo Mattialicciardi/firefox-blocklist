@@ -19,19 +19,20 @@ app dà un'interfaccia per farlo senza reinventare quel passaggio ogni volta.
    `~/Library/Application Support/FirefoxBlocklist/sites.json` (nessun
    privilegio richiesto).
 2. Premendo **Applica modifiche**, l'app genera un `policies.json` valido e lo
-   copia in `Firefox.app/Contents/Resources/distribution/` tramite
-   `osascript ... with administrator privileges` — il prompt di autenticazione
-   è quello nativo di macOS (Touch ID/password), la app non vede né salva la
-   password. Su macOS questa è l'**unica** posizione da cui Firefox legge le
-   policy.
+   scrive **direttamente** (syscall POSIX, come utente, **senza password admin**)
+   in `Firefox.app/Contents/Resources/distribution/` — su macOS questa è l'unica
+   posizione da cui Firefox legge le policy.
 3. **Permesso "Gestione app" (una tantum):** scrivere dentro `Firefox.app` è
-   protetto da macOS (*App Management*). Alla prima applicazione, se compare
-   l'errore, l'app apre Impostazioni → Privacy e sicurezza → **Gestione app**:
-   abilita lì FirefoxBlocklist e ripremi *Applica modifiche*.
+   protetto da macOS (*App Management*). La **prima** applicazione fallisce
+   apposta — quel tentativo **registra** FirefoxBlocklist nell'elenco, e l'app
+   apre Impostazioni → Privacy e sicurezza → **Gestione app**: attiva lì
+   l'interruttore di FirefoxBlocklist e ripremi *Applica modifiche*.
 4. Dopo l'applicazione, **riavvia Firefox** (le policy si leggono all'avvio) e
    verifica su `about:policies`.
-5. Nessun input utente viene mai interpolato in una stringa di shell: il
-   comando privilegiato contiene solo percorsi fissi hardcoded.
+5. La scrittura non passa mai da `osascript`/`administrator privileges` né da una
+   shell; i domini restano confinati nel JSON generato con `JSONSerialization`.
+   Il bundle è ri-firmato ad-hoc da `scripts/install.sh`: è ciò che permette
+   al permesso *Gestione app* di agganciarsi in modo stabile.
 
 ## Build
 

@@ -56,5 +56,12 @@ cat > "${CONTENTS}/Info.plist" <<PLIST
 </plist>
 PLIST
 
-echo "✅ Bundle pronto: ${APP_DIR}"
-echo "   Lancia con:  open ${APP_DIR}"
+# NB: la ri-firma ad-hoc NON avviene qui. `.build/` sta sotto ~/Desktop, che è
+# sincronizzato da iCloud: iCloud ristampa xattr (FinderInfo/fileprovider) che
+# `codesign` rifiuta ("resource fork ... not allowed"). La firma viene fatta da
+# scripts/install.sh sulla copia in /Applications (fuori da iCloud), dove è
+# deterministica. Un bundle non firmato qui va bene per il preview della UI, ma
+# per scrivere le policy in Firefox serve l'app installata E firmata (vedi README).
+echo "✅ Bundle pronto (non firmato): ${APP_DIR}"
+echo "   Preview UI:  open ${APP_DIR}"
+echo "   Per l'uso reale installa+firma:  ./scripts/install.sh"
